@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IGC Flugviewer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="IGC Viewer">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#f4f5f7; --panel:#fff; --line:#dde1e6; --text:#1d2330; --muted:#667085;
+  --accent:#1f6feb; --baro:#1f6feb; --gps:#98a2b3; --enl:#e5484d; --task:#111;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:13px/1.4 "Segoe UI",system-ui,-apple-system,sans-serif}
+#app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+header{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:600;white-space:nowrap}
+header .title{color:var(--muted);flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button,select{font:inherit;border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 10px;cursor:pointer;color:var(--text)}
+button:hover,select:hover{border-color:#b8c0cc}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+label.inl{display:flex;align-items:center;gap:5px;color:var(--muted);white-space:nowrap}
+main{display:grid;grid-template-columns:1fr 330px;min-height:0}
+#left{display:grid;grid-template-rows:1fr 6px var(--baroH,280px);min-height:0;min-width:0}
+#map{min-height:0}
+#split{background:var(--line);cursor:row-resize}
+#split:hover{background:#b8c0cc}
+#baroWrap{display:grid;grid-template-rows:auto 1fr;background:var(--panel);min-height:0}
+#readout{display:flex;gap:18px;padding:6px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap;align-items:center}
+#readout .f{display:flex;flex-direction:column}
+#readout .f b{font-size:14px;font-variant-numeric:tabular-nums}
+#readout .f span{font-size:11px;color:var(--muted)}
+#readout .ctrl{margin-left:auto;display:flex;gap:6px;align-items:center}
+#baroBox{position:relative;min-height:0}
+#baroBox canvas{position:absolute;inset:0;width:100%;height:100%}
+#baroOv{cursor:crosshair}
+aside{background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:12px 14px}
+aside h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:16px 0 6px}
+aside h2:first-child{margin-top:0}
+dl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:0}
+dt{color:var(--muted)}
+dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+td{padding:3px 0;border-bottom:1px solid #eef0f3}
+td.r{text-align:right}
+tr.click{cursor:pointer}
+tr.click:hover td{background:#f2f6ff}
+.legend{display:flex;gap:12px;align-items:center;color:var(--muted);font-size:12px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:4px}
+.ramp{height:8px;border-radius:4px;margin:4px 0 2px}
+.rampLbl{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}
+#drop{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(31,111,235,.12);border:3px dashed var(--accent);z-index:2000;font-size:22px;color:var(--accent);pointer-events:none}
+#drop.on{display:flex}
+#empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:1000;pointer-events:none}
+#empty div{background:rgba(255,255,255,.95);padding:22px 28px;border-radius:10px;box-shadow:0 4px 24px rgba(0,0,0,.15);text-align:center;pointer-events:auto}
+#empty p{margin:6px 0;color:var(--muted)}
+.tp-label{background:rgba(255,255,255,.9);border:1px solid #888;border-radius:4px;padding:1px 5px;font-size:11px;box-shadow:none}
+.tp-label::before{display:none}
+.muted{color:var(--muted)}
+#baroOv,#split{touch-action:none}
+.mob{display:none}
+@media (pointer:coarse){
+  button,select{padding:7px 11px;min-height:36px}
+  input[type=checkbox]{width:18px;height:18px}
+}
+/* Handy / schmale Bildschirme */
+@media (max-width:900px){
+  #app{height:100dvh}
+  main{grid-template-columns:1fr}
+  header{gap:6px;padding:6px 10px}
+  header .title,.lbltxt,header .tzHead{display:none}
+  header h1{display:none}
+  header select{max-width:125px}
+  .mob{display:inline}
+  #infoBtn{display:inline-block;margin-left:auto}
+  #left{grid-template-rows:1fr 14px var(--baroH,38vh)}
+  #split{position:relative;background:var(--panel);border-top:1px solid var(--line)}
+  #split::after{content:"";position:absolute;left:50%;top:5px;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:#c4cad3}
+  #readout{display:grid;grid-template-columns:repeat(5,1fr);gap:4px 6px;padding:4px 10px 6px}
+  #readout .opt{display:none}
+  #readout .f b{font-size:13px;white-space:nowrap}
+  #readout .f span{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #readout .ctrl{grid-column:1/-1;margin-left:0;justify-content:flex-end}
+  aside{position:fixed;left:0;right:0;bottom:0;height:78dvh;z-index:1500;border-left:none;
+    border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.2);
+    transform:translateY(105%);transition:transform .25s ease;padding-top:0}
+  body.info aside{transform:none}
+  .sideHead{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;
+    background:var(--panel);padding:10px 0 8px;margin-bottom:6px;border-bottom:1px solid var(--line);z-index:1}
+  .sideHead b{font-size:15px}
+  dl{font-size:14px}
+  td{padding:6px 0}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>✈<span class="lbltxt"> IGC Flugviewer</span></h1>
+    <button class="primary" id="openBtn"><span class="lbltxt">IGC-Datei öffnen…</span><span class="mob">Öffnen</span></button>
+    <input type="file" id="file" accept=".igc,.IGC" hidden>
+    <span class="title" id="title">Keine Datei geladen – Datei hierher ziehen</span>
+    <label class="inl"><span class="lbltxt">Einfärbung</span>
+      <select id="colorMode" title="Einfärbung des Flugwegs">
+        <option value="alt">Höhe</option>
+        <option value="vario">Steigen/Sinken</option>
+        <option value="speed">Geschwindigkeit</option>
+        <option value="mono">einfarbig</option>
+      </select>
+    </label>
+    <label class="inl"><input type="checkbox" id="showEngine" checked> <span class="lbltxt">Motorlauf markieren</span><span class="mob">Motor</span></label>
+    <label class="inl tzHead"><span class="lbltxt">Zeit</span>
+      <select id="tz" title="Zeitzone"><option value="local">Lokal</option><option value="UTC">UTC</option></select>
+    </label>
+    <button id="infoBtn" class="mob" title="Flugdaten und Statistik">ℹ Info</button>
+  </header>
+  <main>
+    <div id="left">
+      <div id="map" style="position:relative">
+        <div id="empty"><div>
+          <b style="font-size:16px">IGC-Datei laden</b>
+          <p>Datei über den Öffnen-Button auswählen<br>oder per Drag &amp; Drop hier ablegen.</p>
+        </div></div>
+      </div>
+      <div id="split" title="Ziehen zum Größe ändern"></div>
+      <div id="baroWrap">
+        <div id="readout">
+          <div class="f"><b id="rTime">–</b><span>Zeit</span></div>
+          <div class="f"><b id="rAlt">–</b><span>Höhe (baro)</span></div>
+          <div class="f opt"><b id="rGps">–</b><span>Höhe (GPS)</span></div>
+          <div class="f"><b id="rVario">–</b><span>Vario (10 s)</span></div>
+          <div class="f"><b id="rGs">–</b><span>Grundgeschw.</span></div>
+          <div class="f"><b id="rEnl">–</b><span>ENL</span></div>
+          <div class="f opt"><b id="rDist">–</b><span>Strecke bisher</span></div>
+          <div class="ctrl">
+            <button id="play" title="Wiedergabe (Leertaste)">▶</button>
+            <select id="speed" title="Wiedergabegeschwindigkeit">
+              <option value="10">10×</option><option value="30">30×</option>
+              <option value="60" selected>60×</option><option value="120">120×</option><option value="300">300×</option>
+            </select>
+            <button id="resetZoom" title="Zoom zurücksetzen (Doppelklick im Barogramm)">⤢ Gesamt</button>
+          </div>
+        </div>
+        <div id="baroBox">
+          <canvas id="baro"></canvas>
+          <canvas id="baroOv"></canvas>
+        </div>
+      </div>
+    </div>
+    <aside id="side">
+      <div class="sideHead mob"><b>Flugdaten</b>
+        <span style="display:flex;gap:8px;align-items:center">
+          <select id="tz2" title="Zeitzone"><option value="local">Lokalzeit</option><option value="UTC">UTC</option></select>
+          <button id="sideClose" title="Schließen">✕</button>
+        </span></div>
+      <div id="sideContent"><p class="muted">Nach dem Laden erscheinen hier Flugdaten und Statistiken.</p></div>
+    </aside>
+  </main>
+</div>
+<div id="drop">IGC-Datei loslassen zum Öffnen</div>
+
+<script>
+"use strict";
+/* ================= Parsing ================= */
+function parseIGC(text){
+  const lines = text.split(/\r?\n/);
+  const h = {}, ext = {}, fixes = [], task = [];
+  let date = null, lastT = -1, dayOff = 0;
+  for(const raw of lines){
+    const l = raw.trimEnd();
+    if(!l) continue;
+    const c = l[0];
+    if(c === 'H'){
+      const m = l.match(/^H[FOP]DTE(?:DATE:)?(\d{2})(\d{2})(\d{2})/);
+      if(m){ date = {d:+m[1], m:+m[2], y:2000 + +m[3]}; continue; }
+      const k = l.substring(2,5);
+      const i = l.indexOf(':');
+      h[k] = (i >= 0 ? l.substring(i+1) : l.substring(5)).trim();
+    } else if(c === 'I'){
+      const n = +l.substr(1,2);
+      for(let i=0;i<n;i++){
+        const s = l.substr(3+i*7, 7);
+        ext[s.substr(4,3)] = [+s.substr(0,2)-1, +s.substr(2,2)];
+      }
+    } else if(c === 'B' && l.length >= 35){
+      let t = +l.substr(1,2)*3600 + +l.substr(3,2)*60 + +l.substr(5,2);
+      if(lastT >= 0 && t + dayOff < lastT - 43200) dayOff += 86400;
+      t += dayOff; lastT = t;
+      let lat = +l.substr(7,2) + +l.substr(9,5)/60000; if(l[14]==='S') lat = -lat;
+      let lon = +l.substr(15,3) + +l.substr(18,5)/60000; if(l[23]==='W') lon = -lon;
+      if(lat === 0 && lon === 0) continue;
+      const f = {t, lat, lon, pa: parseInt(l.substr(25,5),10)||0, ga: parseInt(l.substr(30,5),10)||0};
+      for(const key of ['ENL','MOP']){
+        if(ext[key]){
+          const s = l.substring(ext[key][0], ext[key][1]);
+          f[key] = parseInt(s,10) / (Math.pow(10, s.length)-1) * 1000; // normiert 0..1000
+        }
+      }
+      fixes.push(f);
+    } else if(c === 'C'){
+      const m = l.match(/^C(\d{2})(\d{5})([NS])(\d{3})(\d{5})([EW])(.*)$/);
+      if(m){
+        let lat = +m[1] + +m[2]/60000; if(m[3]==='S') lat=-lat;
+        let lon = +m[4] + +m[5]/60000; if(m[6]==='W') lon=-lon;
+        if(lat !== 0 || lon !== 0) task.push({lat, lon, name: m[7].trim()});
+      }
+    }
+  }
+  if(!fixes.length) throw new Error('Keine gültigen Positionsdaten (B-Records) gefunden.');
+  return {h, date, ext, fixes, task};
+}
+
+/* ================= Berechnungen ================= */
+const R = 6371000, rad = Math.PI/180;
+function dist(a1,o1,a2,o2){
+  const dA=(a2-a1)*rad, dO=(o2-o1)*rad;
+  const x = Math.sin(dA/2)**2 + Math.cos(a1*rad)*Math.cos(a2*rad)*Math.sin(dO/2)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));
+}
+// gleitende Rate (dv/dt) über Fenster w Sekunden
+function rate(t, v, w){
+  const n=t.length, out=new Float32Array(n); let j=0,k=0;
+  for(let i=0;i<n;i++){
+    while(t[i]-t[j] > w/2) j++;
+    if(k<i) k=i;
+    while(k<n-1 && t[k+1]-t[i] <= w/2) k++;
+    const dt=t[k]-t[j]; out[i] = dt>0 ? (v[k]-v[j])/dt : 0;
+  }
+  return out;
+}
+function segments(t, v, thr, minDur, mergeGap){
+  const runs=[]; let s=-1;
+  for(let i=0;i<t.length;i++){
+    if(v[i] >= thr){ if(s<0) s=i; }
+    else if(s>=0){ runs.push([s,i-1]); s=-1; }
+  }
+  if(s>=0) runs.push([s,t.length-1]);
+  const m=[];
+  for(const r of runs){
+    const last=m[m.length-1];
+    if(last && t[r[0]]-t[last[1]] < mergeGap) last[1]=r[1]; else m.push(r.slice());
+  }
+  return m.filter(r => t[r[1]]-t[r[0]] >= minDur);
+}
+
+function analyse(p){
+  const fx=p.fixes, n=fx.length;
+  const F = {h:p.h, task:p.task, n};
+  const d = p.date || {d:1,m:1,y:1970};
+  F.date = d;
+  F.baseMs = Date.UTC(d.y, d.m-1, d.d);
+  F.t=new Float64Array(n); F.lat=new Float64Array(n); F.lon=new Float64Array(n);
+  F.pa=new Float32Array(n); F.ga=new Float32Array(n); F.cum=new Float64Array(n);
+  F.hasBaro = fx.some(f=>f.pa!==0);
+  F.hasGps = fx.some(f=>f.ga!==0);
+  const engKey = fx[0].MOP!==undefined ? 'MOP' : (fx[0].ENL!==undefined ? 'ENL' : null);
+  F.enl = fx[0].ENL!==undefined ? new Float32Array(n) : null;
+  const eng = engKey ? new Float32Array(n) : null;
+  for(let i=0;i<n;i++){
+    const f=fx[i];
+    F.t[i]=f.t; F.lat[i]=f.lat; F.lon[i]=f.lon; F.pa[i]=f.pa; F.ga[i]=f.ga;
+    if(F.enl) F.enl[i]=f.ENL;
+    if(eng) eng[i]=f[engKey];
+    if(i) F.cum[i]=F.cum[i-1]+dist(F.lat[i-1],F.lon[i-1],f.lat,f.lon);
+  }
+  F.alt = F.hasBaro ? F.pa : F.ga;
+  F.vario = rate(F.t, F.alt, 10);
+  F.vario20 = rate(F.t, F.alt, 20);
+  const gs = rate(F.t, F.cum, 10); for(let i=0;i<n;i++) gs[i]*=3.6;
+  F.gs = gs;
+  // Start / Landung: Grundgeschwindigkeit > 40 km/h
+  let to=0, ld=n-1;
+  for(let i=0;i<n;i++) if(gs[i]>40){ to=i; break; }
+  for(let i=n-1;i>=0;i--) if(gs[i]>40){ ld=i; break; }
+  if(ld<=to){ to=0; ld=n-1; }
+  F.to=to; F.ld=ld;
+  F.engine = eng ? segments(F.t, eng, 500, 30, 60) : [];
+  F.engKey = engKey;
+  // Aufgabe
+  F.legs=[]; F.taskDist=0;
+  for(let i=1;i<p.task.length;i++){
+    const a=p.task[i-1], b=p.task[i], dd=dist(a.lat,a.lon,b.lat,b.lon);
+    F.legs.push(dd); F.taskDist+=dd;
+  }
+  return F;
+}
+
+/* ================= Formatierung ================= */
+let tzMode='local', fmtHM, fmtHMS;
+function makeFmt(){
+  const o = tzMode==='UTC' ? {timeZone:'UTC'} : {};
+  fmtHM  = new Intl.DateTimeFormat('de-DE', {...o, hour:'2-digit', minute:'2-digit'});
+  fmtHMS = new Intl.DateTimeFormat('de-DE', {...o, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+makeFmt();
+const tHM  = t => fmtHM.format(new Date(F.baseMs + t*1000));
+const tHMS = t => fmtHMS.format(new Date(F.baseMs + t*1000));
+function dur(s){ s=Math.round(s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), ss=s%60;
+  return h ? `${h}:${String(m).padStart(2,'0')} h` : `${m}:${String(ss).padStart(2,'0')} min`; }
+const km = m => (m/1000).toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1})+' km';
+const num = (v,dig=0) => v.toLocaleString('de-DE',{minimumFractionDigits:dig,maximumFractionDigits:dig});
+const esc = s => String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ================= Karte ================= */
+const map = L.map('map', {preferCanvas:true, zoomControl:true}).setView([51,10], 6);
+const gAttr = 'Kartendaten &copy; Google';
+const gLayer = l => L.tileLayer(`https://mt{s}.google.com/vt/lyrs=${l}&hl=de&x={x}&y={y}&z={z}`,
+  {subdomains:'0123', maxZoom:20, attribution:gAttr});
+const base = {
+  'Google Gelände': gLayer('p'),
+  'Google Karte': gLayer('m'),
+  'Google Satellit': gLayer('s'),
+  'Google Hybrid': gLayer('y'),
+  'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {maxZoom:19, attribution:'&copy; OpenStreetMap-Mitwirkende'}),
+  'OpenTopoMap': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    {maxZoom:17, attribution:'&copy; OpenStreetMap-Mitwirkende, SRTM | &copy; OpenTopoMap (CC-BY-SA)'})
+};
+base['Google Gelände'].addTo(map);
+L.control.layers(base, null, {position:'topright'}).addTo(map);
+L.control.scale({imperial:false}).addTo(map);
+const trackLayer = L.layerGroup().addTo(map);
+const engineLayer = L.layerGroup().addTo(map);
+const taskLayer = L.layerGroup().addTo(map);
+const markLayer = L.layerGroup().addTo(map);
+let cursorMarker = null;
+
+function ramp(x){ // 0..1 -> blau..grün..gelb..rot
+  x=Math.max(0,Math.min(1,x));
+  return `hsl(${Math.round(240-240*x)},90%,${Math.round(45+5*Math.sin(x*Math.PI))}%)`;
+}
+function diverge(x){ // -1..1: Sinken blau, Steigen rot
+  x=Math.max(-1,Math.min(1,x));
+  if(x<0) return `hsl(215,85%,${Math.round(88+x*40)}%)`;
+  return `hsl(${Math.round(45-45*x)},95%,${Math.round(78-x*30)}%)`;
+}
+let colorMode='alt';
+function colorInfo(){
+  const a=F.alt, lo=F.to, hi=F.ld;
+  if(colorMode==='alt'){
+    let mn=Infinity,mx=-Infinity; for(let i=lo;i<=hi;i++){ if(a[i]<mn)mn=a[i]; if(a[i]>mx)mx=a[i]; }
+    if(mx<=mn) mx=mn+1;
+    return {val:i=>(a[i]-mn)/(mx-mn), col:ramp, css:'linear-gradient(90deg,'+[0,.25,.5,.75,1].map(ramp).join(',')+')',
+      lbl:[num(mn)+' m', num((mn+mx)/2)+' m', num(mx)+' m']};
+  }
+  if(colorMode==='vario') return {val:i=>F.vario[i]/3, col:diverge,
+    css:'linear-gradient(90deg,'+[-1,-.5,0,.5,1].map(diverge).join(',')+')', lbl:['≤ −3 m/s','0','≥ +3 m/s']};
+  if(colorMode==='speed'){
+    let mx=0; for(let i=lo;i<=hi;i++) if(F.gs[i]>mx) mx=F.gs[i];
+    mx=Math.min(mx,300);
+    return {val:i=>F.gs[i]/mx, col:ramp, css:'linear-gradient(90deg,'+[0,.25,.5,.75,1].map(ramp).join(',')+')',
+      lbl:['0 km/h', num(mx/2)+' km/h', num(mx)+' km/h']};
+  }
+  return {val:()=>0, col:()=>'#d6246e', css:'#d6246e', lbl:['','','']};
+}
+function drawTrack(){
+  trackLayer.clearLayers();
+  const ll=i=>[F.lat[i],F.lon[i]];
+  const all=[]; for(let i=0;i<F.n;i++) all.push(ll(i));
+  L.polyline(all,{color:'#000',weight:5,opacity:.35,interactive:false}).addTo(trackLayer);
+  const ci=colorInfo(), B=32;
+  let cur=null, pts=[ll(0)];
+  const flush=()=>{ if(pts.length>1) L.polyline(pts,{color:cur,weight:3,opacity:1,interactive:false}).addTo(trackLayer); };
+  for(let i=1;i<F.n;i++){
+    const v=ci.val(i), q = colorMode==='vario' ? Math.round(Math.max(-1,Math.min(1,v))*B/2)/(B/2) : Math.round(Math.max(0,Math.min(1,v))*B)/B;
+    const c=ci.col(q);
+    if(c!==cur && pts.length>1){ flush(); pts=[pts[pts.length-1]]; }
+    cur=c; pts.push(ll(i));
+  }
+  flush();
+  const lg=document.getElementById('colorLegend');
+  if(lg) lg.innerHTML = colorMode==='mono' ? '' :
+    `<div class="ramp" style="background:${ci.css}"></div><div class="rampLbl"><span>${ci.lbl[0]}</span><span>${ci.lbl[1]}</span><span>${ci.lbl[2]}</span></div>`;
+}
+function drawEngine(){
+  engineLayer.clearLayers();
+  if(!document.getElementById('showEngine').checked) return;
+  for(const [a,b] of F.engine){
+    const pts=[]; for(let i=a;i<=b;i++) pts.push([F.lat[i],F.lon[i]]);
+    L.polyline(pts,{color:'#e5484d',weight:11,opacity:.45,interactive:false}).addTo(engineLayer);
+  }
+}
+function drawTask(){
+  taskLayer.clearLayers(); markLayer.clearLayers();
+  const T=F.task;
+  if(T.length>1){
+    L.polyline(T.map(p=>[p.lat,p.lon]),{color:'#fff',weight:4,opacity:.8,interactive:false}).addTo(taskLayer);
+    L.polyline(T.map(p=>[p.lat,p.lon]),{color:'#111',weight:2,dashArray:'8 6',interactive:false}).addTo(taskLayer);
+  }
+  T.forEach((p,i)=>{
+    L.circle([p.lat,p.lon],{radius:500,color:'#111',weight:1.5,fillOpacity:.08,interactive:false}).addTo(taskLayer);
+    const role = i===0?'Start': i===T.length-1?'Ziel':'WP '+i;
+    L.circleMarker([p.lat,p.lon],{radius:4,color:'#111',fillColor:'#fff',fillOpacity:1,weight:2})
+      .bindTooltip(`${role}: ${esc(p.name)}`,{permanent:true,direction:'right',offset:[6,0],className:'tp-label'})
+      .addTo(taskLayer);
+  });
+  const mk=(i,col,txt)=>L.circleMarker([F.lat[i],F.lon[i]],{radius:6,color:'#fff',weight:2,fillColor:col,fillOpacity:1})
+    .bindTooltip(txt).addTo(markLayer);
+  mk(F.to,'#12a150','Start '+tHM(F.t[F.to]));
+  mk(F.ld,'#111','Landung '+tHM(F.t[F.ld]));
+  if(cursorMarker) cursorMarker.remove();
+  cursorMarker = L.circleMarker([F.lat[0],F.lon[0]],{radius:8,color:'#1f6feb',weight:3,fillColor:'#fff',fillOpacity:1,interactive:false,pane:'markerPane'}).addTo(map);
+}
+function fitRange(a,b,animate=true){
+  let mnA=90,mxA=-90,mnO=180,mxO=-180;
+  for(let i=a;i<=b;i++){ const la=F.lat[i],lo=F.lon[i];
+    if(la<mnA)mnA=la; if(la>mxA)mxA=la; if(lo<mnO)mnO=lo; if(lo>mxO)mxO=lo; }
+  map.fitBounds([[mnA,mnO],[mxA,mxO]],{padding:[30,30],animate});
+}
+map.on('click', e=>{
+  if(!F) return;
+  const p=map.latLngToContainerPoint(e.latlng); let best=-1,bd=225;
+  for(let i=0;i<F.n;i++){
+    const q=map.latLngToContainerPoint([F.lat[i],F.lon[i]]), dx=q.x-p.x, dy=q.y-p.y, d=dx*dx+dy*dy;
+    if(d<bd){bd=d;best=i;}
+  }
+  if(best>=0){
+    if(F.t[best]<view[0]||F.t[best]>view[1]) view=[F.t[0],F.t[F.n-1]], drawBaro();
+    setCursor(F.t[best]);
+  }
+});
+
+/* ================= Barogramm ================= */
+const cv=document.getElementById('baro'), ov=document.getElementById('baroOv');
+const box=document.getElementById('baroBox');
+const PAD={l:56,r:48,t:12,b:24};
+let view=[0,1], cursorT=0, yRange=[0,1], selStart=null, selEnd=null;
+function size(c){
+  const dpr=window.devicePixelRatio||1, w=box.clientWidth, h=box.clientHeight;
+  c.width=Math.round(w*dpr); c.height=Math.round(h*dpr);
+  const ctx=c.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); return {ctx,w,h};
+}
+const xOf=(t,w)=>PAD.l+(t-view[0])/(view[1]-view[0])*(w-PAD.l-PAD.r);
+const tOf=(x,w)=>view[0]+(x-PAD.l)/(w-PAD.l-PAD.r)*(view[1]-view[0]);
+const yOf=(v,h)=>PAD.t+(1-(v-yRange[0])/(yRange[1]-yRange[0]))*(h-PAD.t-PAD.b);
+function nice(range,target){ const raw=range/target, p=Math.pow(10,Math.floor(Math.log10(raw)));
+  for(const m of [1,2,2.5,5,10]) if(m*p>=raw) return m*p; return 10*p; }
+function idxAt(t){ let lo=0,hi=F.n-1; while(lo<hi){ const m=(lo+hi)>>1; if(F.t[m]<t) lo=m+1; else hi=m; }
+  if(lo>0 && t-F.t[lo-1] < F.t[lo]-t) lo--; return lo; }
+
+function drawBaro(){
+  const {ctx,w,h}=size(cv);
+  ctx.clearRect(0,0,w,h);
+  if(!F) return;
+  const i0=Math.max(0,idxAt(view[0])-1), i1=Math.min(F.n-1,idxAt(view[1])+1);
+  let mn=Infinity,mx=-Infinity;
+  for(let i=i0;i<=i1;i++){
+    for(const a of [F.hasBaro?F.pa[i]:null, F.hasGps?F.ga[i]:null]) if(a!==null){ if(a<mn)mn=a; if(a>mx)mx=a; }
+  }
+  const step0=nice(Math.max(mx-mn,50),5);
+  yRange=[Math.floor(mn/step0)*step0, Math.ceil(mx/step0)*step0];
+  if(yRange[1]-yRange[0]<step0) yRange[1]+=step0;
+  const pw=w-PAD.l-PAD.r, ph=h-PAD.t-PAD.b;
+  ctx.font='11px "Segoe UI",system-ui,sans-serif';
+  // Motorlauf-Bänder
+  ctx.fillStyle='rgba(229,72,77,.12)';
+  for(const [a,b] of F.engine){
+    const x0=Math.max(PAD.l,xOf(F.t[a],w)), x1=Math.min(w-PAD.r,xOf(F.t[b],w));
+    if(x1>x0) ctx.fillRect(x0,PAD.t,x1-x0,ph);
+  }
+  // Raster Höhe
+  const ys=nice(yRange[1]-yRange[0], Math.max(2,ph/45));
+  ctx.strokeStyle='#eceef2'; ctx.fillStyle='#667085'; ctx.lineWidth=1; ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(let v=Math.ceil(yRange[0]/ys)*ys; v<=yRange[1]+1e-6; v+=ys){
+    const y=Math.round(yOf(v,h))+.5;
+    ctx.beginPath(); ctx.moveTo(PAD.l,y); ctx.lineTo(w-PAD.r,y); ctx.stroke();
+    ctx.fillText(num(v)+' m', PAD.l-6, y);
+  }
+  // Raster Zeit
+  const span=view[1]-view[0], target=Math.max(2,pw/90);
+  const steps=[30,60,120,300,600,900,1800,3600,7200,10800];
+  let ts=steps.find(s=>span/s<=target)||10800;
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for(let t=Math.ceil(view[0]/ts)*ts; t<=view[1]; t+=ts){
+    const x=Math.round(xOf(t,w))+.5;
+    ctx.beginPath(); ctx.moveTo(x,PAD.t); ctx.lineTo(x,h-PAD.b); ctx.stroke();
+    ctx.fillText(ts<60?tHMS(t):tHM(t), x, h-PAD.b+5);
+  }
+  // Clip Plotbereich
+  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l,PAD.t,pw,ph); ctx.clip();
+  // ENL-Fläche (rechte Achse 0..1000)
+  if(F.enl){
+    ctx.beginPath(); ctx.moveTo(xOf(F.t[i0],w), h-PAD.b);
+    for(let i=i0;i<=i1;i++) ctx.lineTo(xOf(F.t[i],w), h-PAD.b - F.enl[i]/1000*ph);
+    ctx.lineTo(xOf(F.t[i1],w), h-PAD.b); ctx.closePath();
+    ctx.fillStyle='rgba(229,72,77,.22)'; ctx.fill();
+  }
+  const line=(arr,col,lw)=>{
+    ctx.beginPath(); ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.lineJoin='round';
+    for(let i=i0;i<=i1;i++){ const x=xOf(F.t[i],w), y=yOf(arr[i],h); i===i0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+    ctx.stroke();
+  };
+  if(F.hasGps) line(F.ga,'#98a2b3',1.2);
+  if(F.hasBaro) line(F.pa,'#1f6feb',1.8);
+  // Start/Landung
+  ctx.setLineDash([4,3]); ctx.strokeStyle='#12a150'; ctx.lineWidth=1;
+  for(const i of [F.to,F.ld]){ const x=Math.round(xOf(F.t[i],w))+.5; ctx.beginPath(); ctx.moveTo(x,PAD.t); ctx.lineTo(x,h-PAD.b); ctx.stroke(); }
+  ctx.setLineDash([]);
+  ctx.restore();
+  // rechte Achse ENL
+  if(F.enl){
+    ctx.fillStyle='#e5484d'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    for(const v of [0,500,1000]) ctx.fillText(v===1000?'999':String(v), w-PAD.r+6, h-PAD.b-v/1000*ph);
+    ctx.save(); ctx.translate(w-6, PAD.t+ph/2); ctx.rotate(-Math.PI/2); ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText('ENL',0,0); ctx.restore();
+  }
+  ctx.strokeStyle='#c4cad3'; ctx.strokeRect(PAD.l+.5,PAD.t+.5,pw,ph);
+  drawOverlay();
+}
+function drawOverlay(){
+  const {ctx,w,h}=size(ov);
+  ctx.clearRect(0,0,w,h);
+  if(!F) return;
+  if(selStart!==null && selEnd!==null){
+    const a=Math.max(PAD.l,Math.min(selStart,selEnd)), b=Math.min(w-PAD.r,Math.max(selStart,selEnd));
+    ctx.fillStyle='rgba(31,111,235,.12)'; ctx.fillRect(a,PAD.t,b-a,h-PAD.t-PAD.b);
+    ctx.strokeStyle='rgba(31,111,235,.6)'; ctx.strokeRect(a+.5,PAD.t+.5,b-a,h-PAD.t-PAD.b);
+  }
+  if(cursorT<view[0]||cursorT>view[1]) return;
+  const i=idxAt(cursorT), x=Math.round(xOf(F.t[i],w))+.5;
+  ctx.strokeStyle='#111'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(x,PAD.t); ctx.lineTo(x,h-PAD.b); ctx.stroke();
+  const dot=(v,c)=>{ ctx.beginPath(); ctx.arc(x,yOf(v,h),4,0,7); ctx.fillStyle=c; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke(); };
+  if(F.hasGps) dot(F.ga[i],'#98a2b3');
+  if(F.hasBaro) dot(F.pa[i],'#1f6feb');
+  // Zeitlabel
+  const lbl=tHMS(F.t[i]); ctx.font='bold 11px "Segoe UI",system-ui,sans-serif';
+  const tw=ctx.measureText(lbl).width+10, lx=Math.max(PAD.l,Math.min(w-PAD.r-tw,x-tw/2));
+  ctx.fillStyle='#111'; ctx.fillRect(lx,h-PAD.b+2,tw,17);
+  ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(lbl,lx+tw/2,h-PAD.b+10.5);
+}
+const $=id=>document.getElementById(id);
+function setCursor(t, pan=true){
+  if(!F) return;
+  cursorT=Math.max(F.t[0],Math.min(F.t[F.n-1],t));
+  const i=idxAt(cursorT);
+  cursorMarker.setLatLng([F.lat[i],F.lon[i]]);
+  if(pan && !map.getBounds().pad(-0.15).contains([F.lat[i],F.lon[i]])) map.panTo([F.lat[i],F.lon[i]],{animate:true});
+  $('rTime').textContent=tHMS(F.t[i]);
+  $('rAlt').textContent=F.hasBaro?num(F.pa[i])+' m':'–';
+  $('rGps').textContent=F.hasGps?num(F.ga[i])+' m':'–';
+  const v=F.vario[i]; $('rVario').textContent=(v>=0?'+':'−')+num(Math.abs(v),1)+' m/s';
+  $('rVario').style.color = v>0.2?'#12a150':v<-0.2?'#d14343':'';
+  $('rGs').textContent=num(F.gs[i])+' km/h';
+  $('rEnl').textContent=F.enl?num(F.enl[i]):'–';
+  $('rDist').textContent=km(Math.max(0,F.cum[i]-F.cum[F.to]));
+  drawOverlay();
+}
+
+// Bedienung Barogramm
+// Maus:  Hover = Cursor, Ziehen = Zeitbereich zoomen, Doppelklick = Gesamt
+// Touch: Wischen = Cursor, zwei Finger = zoomen/verschieben, Doppeltipp = Gesamt
+let dragging=false, moved=false;
+const touches=new Map();
+let pinch=null, wasPinch=false, tapStart=null, lastTap=0;
+const ovX=e=>e.clientX-ov.getBoundingClientRect().left;
+function clampView(a,b){
+  const full=[F.t[0],F.t[F.n-1]], span=Math.min(full[1]-full[0], Math.max(60,b-a));
+  a=Math.max(full[0],Math.min(full[1]-span,a));
+  return [a,a+span];
+}
+ov.addEventListener('pointerdown',e=>{
+  if(!F) return;
+  ov.setPointerCapture(e.pointerId);
+  const x=ovX(e), w=box.clientWidth;
+  if(e.pointerType==='mouse'){
+    if(e.button!==0) return;
+    dragging=true; moved=false; selStart=selEnd=x; return;
+  }
+  touches.set(e.pointerId,x);
+  if(touches.size===1){
+    wasPinch=false; tapStart={x,time:performance.now()};
+    if(playing) togglePlay();
+    setCursor(tOf(x,w),false);
+  } else if(touches.size===2){
+    const [x1,x2]=[...touches.values()];
+    pinch={t1:tOf(x1,w), t2:tOf(x2,w)}; wasPinch=true;
+  }
+});
+ov.addEventListener('pointermove',e=>{
+  if(!F) return;
+  const x=ovX(e), w=box.clientWidth;
+  if(e.pointerType==='mouse'){
+    if(dragging){ selEnd=x; if(Math.abs(selEnd-selStart)>4) moved=true; setCursor(tOf(selEnd,w),false); }
+    else if(!playing) setCursor(tOf(x,w),false);
+    return;
+  }
+  if(!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId,x);
+  if(touches.size===2 && pinch){
+    const [x1,x2]=[...touches.values()];
+    if(Math.abs(x2-x1)<20) return;
+    const s=(pinch.t2-pinch.t1)/(x2-x1);   // Sekunden pro Pixel, beide Finger bleiben an "ihrer" Zeit
+    const a=pinch.t1-(x1-PAD.l)*s;
+    view=clampView(a, a+s*(w-PAD.l-PAD.r)); drawBaro();
+  } else if(touches.size===1 && !wasPinch) setCursor(tOf(x,w),false);
+});
+function pointerEnd(e){
+  if(!F) return;
+  if(e.pointerType==='mouse'){
+    if(!dragging) return; dragging=false;
+    const w=box.clientWidth;
+    if(moved){
+      const a=tOf(Math.min(selStart,selEnd),w), b=tOf(Math.max(selStart,selEnd),w);
+      if(b-a>=20){ view=[Math.max(F.t[0],a),Math.min(F.t[F.n-1],b)]; fitRange(idxAt(view[0]),idxAt(view[1])); }
+    } else setCursor(tOf(selStart,w),true);
+    selStart=selEnd=null; drawBaro(); return;
+  }
+  if(!touches.has(e.pointerId)) return;
+  touches.delete(e.pointerId);
+  if(touches.size<2) pinch=null;
+  if(touches.size===0){
+    const now=performance.now();
+    const isTap = e.type==='pointerup' && !wasPinch && tapStart &&
+      Math.abs(ovX(e)-tapStart.x)<10 && now-tapStart.time<300;
+    if(isTap && now-lastTap<350){ lastTap=0; resetZoom(); }
+    else { lastTap=isTap?now:0; setCursor(cursorT,true); }   // Karte zur Position nachführen
+  }
+}
+ov.addEventListener('pointerup',pointerEnd);
+ov.addEventListener('pointercancel',pointerEnd);
+ov.addEventListener('dblclick',e=>{ if(!touches.size) resetZoom(); });
+ov.addEventListener('wheel',e=>{
+  if(!F) return; e.preventDefault();
+  const w=box.clientWidth, tc=tOf(e.offsetX,w), f=e.deltaY>0?1.25:0.8;
+  const full=[F.t[0],F.t[F.n-1]];
+  let a=tc-(tc-view[0])*f, b=tc+(view[1]-tc)*f;
+  if(b-a<60) return;
+  if(a<full[0]){b+=full[0]-a;a=full[0];} if(b>full[1]){a-=b-full[1];b=full[1];}
+  view=[Math.max(full[0],a),Math.min(full[1],b)]; drawBaro();
+},{passive:false});
+function resetZoom(){ if(!F) return; view=[F.t[0],F.t[F.n-1]]; drawBaro(); fitRange(0,F.n-1); }
+$('resetZoom').onclick=resetZoom;
+
+// Wiedergabe
+let playing=false, lastFrame=0;
+function togglePlay(){
+  if(!F) return;
+  playing=!playing; $('play').textContent=playing?'❚❚':'▶';
+  if(playing){ if(cursorT>=F.t[F.ld]-1) cursorT=F.t[F.to]; lastFrame=performance.now(); requestAnimationFrame(tick); }
+}
+function tick(now){
+  if(!playing) return;
+  const dt=(now-lastFrame)/1000; lastFrame=now;
+  let t=cursorT+dt*(+$('speed').value);
+  if(t>=F.t[F.n-1]){ t=F.t[F.n-1]; togglePlay(); }
+  if(t>view[1]||t<view[0]){ const s=view[1]-view[0]; let a=t-s*0.1; a=Math.max(F.t[0],Math.min(F.t[F.n-1]-s,a)); view=[a,a+s]; drawBaro(); }
+  setCursor(t,true);
+  if(playing) requestAnimationFrame(tick);
+}
+$('play').onclick=togglePlay;
+window.addEventListener('keydown',e=>{
+  if(!F || e.target.tagName==='SELECT' || e.target.tagName==='INPUT') return;
+  if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
+  else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){
+    e.preventDefault(); const st=e.shiftKey?60:5; setCursor(cursorT+(e.key==='ArrowRight'?st:-st),true);
+  }
+});
+
+// Splitter
+(()=>{ const sp=$('split'), left=$('left'); let on=false;
+  sp.addEventListener('pointerdown',e=>{on=true; sp.setPointerCapture(e.pointerId); e.preventDefault();});
+  sp.addEventListener('pointermove',e=>{ if(!on) return;
+    const r=left.getBoundingClientRect(); const h=Math.max(140,Math.min(r.height-120,r.bottom-e.clientY));
+    left.style.setProperty('--baroH',h+'px'); });
+  const end=()=>{ if(on){on=false; map.invalidateSize(); drawBaro();} };
+  sp.addEventListener('pointerup',end); sp.addEventListener('pointercancel',end);
+})();
+// Info-Blatt (Handy)
+const closeInfo=()=>{ document.body.classList.remove('info'); };
+$('infoBtn').onclick=()=>document.body.classList.toggle('info');
+$('sideClose').onclick=closeInfo;
+$('tz2').onchange=e=>{ $('tz').value=e.target.value; $('tz').dispatchEvent(new Event('change')); };
+// Auf Touch-Geräten den Dateifilter weglassen – Android graut .igc sonst oft aus
+if(matchMedia('(pointer:coarse)').matches) $('file').removeAttribute('accept');
+new ResizeObserver(()=>{ drawBaro(); map.invalidateSize(); }).observe(box);
+
+/* ================= Seitenleiste ================= */
+function renderSide(){
+  const h=F.h, d=F.date, air=F.t[F.ld]-F.t[F.to];
+  let maxA=-1e9,minA=1e9,maxG=-1e9,maxGs=0,maxV=-99,minV=99;
+  for(let i=F.to;i<=F.ld;i++){
+    if(F.alt[i]>maxA)maxA=F.alt[i]; if(F.alt[i]<minA)minA=F.alt[i];
+    if(F.ga[i]>maxG)maxG=F.ga[i]; if(F.gs[i]>maxGs)maxGs=F.gs[i];
+    if(F.vario20[i]>maxV)maxV=F.vario20[i]; if(F.vario20[i]<minV)minV=F.vario20[i];
+  }
+  const flown=F.cum[F.ld]-F.cum[F.to];
+  const engTot=F.engine.reduce((s,[a,b])=>s+F.t[b]-F.t[a],0);
+  const row=(k,v)=>v?`<dt>${k}</dt><dd>${esc(v)}</dd>`:'';
+  let html=`<h2>Flug</h2><dl>
+    ${row('Datum', `${String(d.d).padStart(2,'0')}.${String(d.m).padStart(2,'0')}.${d.y}`)}
+    ${row('Pilot', h.PLT)}${row('Besatzung', h.CM2)}
+    ${row('Flugzeug', h.GTY)}${row('Kennzeichen', h.GID)}${row('WKZ', h.CID)}${row('Klasse', h.CCL)}
+    ${row('Logger', h.FTY)}
+  </dl>
+  <h2>Statistik</h2><dl>
+    ${row('Start', tHM(F.t[F.to]))}${row('Landung', tHM(F.t[F.ld]))}
+    ${row('Flugdauer', dur(air))}
+    ${row('Geflogene Strecke', km(flown))}
+    ${row('Ø Geschwindigkeit', air>0?num(flown/air*3.6)+' km/h':'')}
+    ${row('Max. Grundgeschw.', num(maxGs)+' km/h')}
+    ${row(F.hasBaro?'Max. Höhe (baro)':'Max. Höhe (GPS)', num(maxA)+' m')}
+    ${F.hasBaro&&F.hasGps?row('Max. Höhe (GPS)', num(maxG)+' m'):''}
+    ${row('Min. Höhe im Flug', num(minA)+' m')}
+    ${row('Bestes Steigen (20 s)', '+'+num(maxV,1)+' m/s')}
+    ${row('Stärkstes Sinken (20 s)', num(minV,1)+' m/s')}
+    ${row('Fixes / Intervall', num(F.n)+' / '+num((F.t[F.n-1]-F.t[0])/Math.max(1,F.n-1),1)+' s')}
+  </dl>
+  <h2>Einfärbung Flugweg</h2><div id="colorLegend"></div>`;
+  if(F.engKey){
+    html+=`<h2>Motorläufe (${F.engKey})</h2>`;
+    if(!F.engine.length) html+='<p class="muted">Kein Motorlauf erkannt.</p>';
+    else{
+      html+='<table><tr class="muted"><td>von</td><td>bis</td><td class="r">Dauer</td><td class="r">Δ Höhe</td></tr>';
+      for(const [a,b] of F.engine){
+        const dh=F.alt[b]-F.alt[a];
+        html+=`<tr class="click" data-a="${a}" data-b="${b}"><td>${tHM(F.t[a])}</td><td>${tHM(F.t[b])}</td><td class="r">${dur(F.t[b]-F.t[a])}</td><td class="r">${dh>=0?'+':''}${num(dh)} m</td></tr>`;
+      }
+      html+=`</table><p class="muted" style="margin:4px 0 0">Gesamt: ${dur(engTot)}</p>`;
+    }
+  }
+  if(F.task.length){
+    html+=`<h2>Aufgabe (${km(F.taskDist)})</h2><table>`;
+    F.task.forEach((p,i)=>{
+      const role=i===0?'Start':i===F.task.length-1?'Ziel':'WP '+i;
+      html+=`<tr><td class="muted">${role}</td><td>${esc(p.name)}</td><td class="r">${i?km(F.legs[i-1]):''}</td></tr>`;
+    });
+    html+='</table>';
+  }
+  html+=`<h2>Barogramm</h2><div class="legend">
+    ${F.hasBaro?'<span><i style="background:#1f6feb"></i>Baro-Höhe</span>':''}
+    ${F.hasGps?'<span><i style="background:#98a2b3"></i>GPS-Höhe</span>':''}
+    ${F.enl?'<span><i style="background:rgba(229,72,77,.45);height:8px"></i>ENL</span>':''}
+    ${F.engine.length?'<span><i style="background:rgba(229,72,77,.15);height:8px"></i>Motorlauf</span>':''}
+  </div>
+  <p class="muted" style="margin-top:8px">${matchMedia('(pointer:coarse)').matches
+    ? 'Im Barogramm wischen: Position auf Karte · Zwei Finger: zoomen/verschieben · Doppeltipp: Gesamtansicht · Tipp auf Flugweg: Zeitpunkt wählen · Grauer Balken über dem Barogramm: Größe ändern'
+    : 'Maus über Barogramm: Position auf Karte · Ziehen: Zeitbereich zoomen · Mausrad: zoomen · Doppelklick: Gesamtansicht · Klick auf Flugweg: Zeitpunkt wählen · Leertaste: Wiedergabe · ←/→: 5 s (mit Shift 60 s)'}</p>`;
+  $('sideContent').innerHTML=html;
+  for(const tr of document.querySelectorAll('tr.click')) tr.onclick=()=>{
+    const a=+tr.dataset.a, b=+tr.dataset.b, pad=Math.max(120,(F.t[b]-F.t[a])*0.5);
+    view=[Math.max(F.t[0],F.t[a]-pad),Math.min(F.t[F.n-1],F.t[b]+pad)];
+    closeInfo(); drawBaro(); fitRange(Math.max(0,a-30),Math.min(F.n-1,b+30)); setCursor(F.t[a],false);
+  };
+}
+
+/* ================= Laden ================= */
+let F=null;
+function load(text,name){
+  try{
+    F=analyse(parseIGC(text));
+  }catch(err){ alert('Datei konnte nicht gelesen werden:\n'+err.message); return; }
+  $('empty').style.display='none';
+  const h=F.h;
+  $('title').textContent=[name, h.GTY, h.GID, h.CID&&'('+h.CID+')', h.PLT].filter(Boolean).join(' · ');
+  document.title=name+' – IGC Flugviewer';
+  view=[F.t[0],F.t[F.n-1]];
+  renderSide(); drawTrack(); drawEngine(); drawTask();
+  map.invalidateSize(); fitRange(0,F.n-1,false); setTimeout(()=>{ map.invalidateSize(); fitRange(0,F.n-1,false); },50);
+  drawBaro(); setCursor(F.t[F.to],false);
+}
+function readFile(file){
+  const r=new FileReader();
+  r.onload=()=>load(r.result,file.name);
+  r.readAsText(file,'ISO-8859-1');
+}
+$('openBtn').onclick=()=>$('file').click();
+$('file').onchange=e=>{ if(e.target.files[0]) readFile(e.target.files[0]); e.target.value=''; };
+let dragDepth=0;
+window.addEventListener('dragenter',e=>{e.preventDefault();dragDepth++;$('drop').classList.add('on');});
+window.addEventListener('dragleave',e=>{e.preventDefault();if(--dragDepth<=0){dragDepth=0;$('drop').classList.remove('on');}});
+window.addEventListener('dragover',e=>e.preventDefault());
+window.addEventListener('drop',e=>{
+  e.preventDefault(); dragDepth=0; $('drop').classList.remove('on');
+  const f=e.dataTransfer.files[0]; if(f) readFile(f);
+});
+$('colorMode').onchange=e=>{ colorMode=e.target.value; if(F) drawTrack(); };
+$('showEngine').onchange=()=>{ if(F) drawEngine(); };
+$('tz').onchange=e=>{ tzMode=e.target.value; makeFmt(); if(F){ renderSide(); drawTrack(); drawTask(); drawBaro(); setCursor(cursorT,false);} };
+// optional: ?file=URL (z. B. bei lokalem Webserver)
+const qf=new URLSearchParams(location.search).get('file');
+if(qf) fetch(qf).then(r=>r.arrayBuffer()).then(b=>load(new TextDecoder('iso-8859-1').decode(b), qf.split('/').pop()))
+  .catch(err=>alert('Laden fehlgeschlagen: '+err.message));
+</script>
+</body>
+</html>
