@@ -681,8 +681,9 @@ const closeInfo=()=>{ document.body.classList.remove('info'); };
 $('infoBtn').onclick=()=>document.body.classList.toggle('info');
 $('sideClose').onclick=closeInfo;
 $('tz2').onchange=e=>{ $('tz').value=e.target.value; $('tz').dispatchEvent(new Event('change')); };
-// Auf Touch-Geräten den Dateifilter weglassen – Android graut .igc sonst oft aus
-if(matchMedia('(pointer:coarse)').matches) $('file').removeAttribute('accept');
+// Android kennt .igc nicht: ohne Filter bietet Chrome nur Kamera/Fotos an, mit
+// reinem ".igc" wird die Datei ausgegraut. Nicht-Bild-MIME-Typen öffnen den Dateimanager.
+if(matchMedia('(pointer:coarse)').matches) $('file').accept='.igc,application/octet-stream,text/plain,application/x-igc';
 new ResizeObserver(()=>{ drawBaro(); map.invalidateSize(); }).observe(box);
 
 /* ================= Seitenleiste ================= */
